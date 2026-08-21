@@ -368,8 +368,8 @@ export default function MasterKpmDynamicPage() {
             <thead className="bg-slate-900 text-white font-bold uppercase tracking-wider text-[11px]">
               <tr>
                 <th className="p-3 w-10 text-center">No</th>
-                {/* Render Header Kolom Dinamis */}
-                {headers.slice(0, 6).map((h) => (
+                {/* Render Header Kolom Dinamis TANPA BATAS (Menghapus .slice(0,6) yang ada sebelumnya) */}
+                {headers.map((h) => (
                   <th key={h} className="p-3 min-w-[120px]">
                     {h}
                   </th>
@@ -394,8 +394,8 @@ export default function MasterKpmDynamicPage() {
                   <tr key={item.id || idx} className="hover:bg-slate-50 transition">
                     <td className="p-3 text-center font-bold text-slate-400">{idx + 1}</td>
 
-                    {/* Render Nilai Sel Sesuai Header */}
-                    {headers.slice(0, 6).map((h) => {
+                    {/* Render Nilai Sel Sesuai Header TANPA BATAS */}
+                    {headers.map((h) => {
                       const val = item.raw_data?.[h] || (h.toUpperCase().includes("NIK") ? item.nik : item.nama);
                       return (
                         <td key={h} className="p-3 font-medium text-slate-800">
