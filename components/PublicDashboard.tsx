@@ -16,12 +16,17 @@ import {
 } from "lucide-react";
 import { KPM, VillageStat } from "@/lib/types";
 
+// Extend interface KPM lokal agar TypeScript mengenali raw_data
+interface ExtendedKPM extends KPM {
+  raw_data?: Record<string, any>;
+}
+
 interface Props {
   onSelectKpm: (kpm: KPM) => void;
 }
 
 export default function PublicDashboard({ onSelectKpm }: Props) {
-  const [kpmList, setKpmList] = useState<KPM[]>([]);
+  const [kpmList, setKpmList] = useState<ExtendedKPM[]>([]);
   const [villageStats, setVillageStats] = useState<VillageStat[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -48,7 +53,7 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
 
       const unsubKpm = onValue(kpmRef, (kpmSnap) => {
         const kpmVal = kpmSnap.val() || {};
-        const list: KPM[] = Object.keys(kpmVal).map((key) => {
+        const list: ExtendedKPM[] = Object.keys(kpmVal).map((key) => {
           const raw = kpmVal[key];
           const nik = String(raw.nik || "").trim();
           // Status OTOMATIS TRUE hanya jika datanya BENAR-BENAR ADA di node submissions
@@ -62,6 +67,7 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
             desa: raw.desa || "Desa Lainnya",
             status_isi: isFilled,
             submission_id: isFilled ? raw.submission_id : null,
+            raw_data: raw.raw_data || {}, // MENGAMBIL DATA DINAMIS (RT, RW, DLL)
           };
         });
 
@@ -117,10 +123,12 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
     const matchVillage = selectedVillage === "SEMUA" || k.desa === selectedVillage;
 
     const q = searchQuery.toLowerCase();
-    const matchQuery =
-      k.nama.toLowerCase().includes(q) || k.nik.includes(q) || k.desa.toLowerCase().includes(q);
+    
+    // Pencarian mencakup Nama, NIK, Desa, DAN Data Dinamis (RT, RW, dll)
+    const matchBasic = k.nama.toLowerCase().includes(q) || k.nik.includes(q) || k.desa.toLowerCase().includes(q);
+    const matchRaw = Object.values(k.raw_data || {}).some(val => String(val).toLowerCase().includes(q));
 
-    return matchTab && matchVillage && matchQuery;
+    return matchTab && matchVillage && (matchBasic || matchRaw);
   });
 
   return (
@@ -261,7 +269,7 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
             <input
               type="text"
-              placeholder="Cari nama atau NIK warga..."
+              placeholder="Cari nama, NIK, RT, RW..."
               className="w-full pl-9 pr-4 py-2 bg-slate-50 border rounded-xl text-xs sm:text-sm font-medium outline-none focus:bg-white focus:border-blue-700"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -285,8 +293,8 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
           </div>
         </div>
 
-        {/* List Kartu KPM (Touch Friendly) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[420px] overflow-y-auto pr-1">
+        {/* List Kartu KPM */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-1">
           {filteredKpmList.length === 0 ? (
             <div className="col-span-full py-8 text-center text-slate-400 text-xs">
               Tidak ada data warga yang cocok dengan filter.
@@ -295,14 +303,30 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
             filteredKpmList.map((kpm) => (
               <div
                 key={kpm.id || kpm.nik}
-                className="p-3.5 bg-slate-50 hover:bg-blue-50/60 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-3 transition shadow-sm"
+                className="p-4 bg-slate-50 hover:bg-blue-50/60 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-3 transition shadow-sm"
               >
-                <div className="space-y-0.5 min-w-0 flex-1">
+                <div className="space-y-1 min-w-0 flex-1">
                   <h4 className="font-bold text-slate-900 text-sm truncate">{kpm.nama}</h4>
                   <p className="text-[11px] text-slate-500 font-mono">NIK: {kpm.nik || "-"}</p>
-                  <span className="inline-block text-[10px] font-semibold bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-700">
-                    Desa {kpm.desa}
-                  </span>
+                  
+                  {/* RENDER DATA DINAMIS (RT, RW, KECAMATAN DLL) */}
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    <span className="inline-block text-[10px] font-semibold bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-700 shadow-sm">
+                      Desa {kpm.desa}
+                    </span>
+                    
+                    {Object.keys(kpm.raw_data || {})
+                      .filter(key => 
+                        !["NAMA", "NIK", "DESA", "STATUS"].includes(key.toUpperCase()) && 
+                        kpm.raw_data![key] && 
+                        String(kpm.raw_data![key]).trim() !== ""
+                      )
+                      .map((key) => (
+                        <span key={key} className="inline-block text-[10px] font-medium bg-blue-50/50 border border-blue-100 px-2 py-0.5 rounded text-slate-600">
+                          {key}: <strong className="text-slate-800">{kpm.raw_data![key]}</strong>
+                        </span>
+                      ))}
+                  </div>
                 </div>
 
                 <div>
@@ -313,7 +337,7 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
                   ) : (
                     <button
                       onClick={() => {
-                        onSelectKpm(kpm);
+                        onSelectKpm(kpm as KPM);
                         // Scroll otomatis ke bawah menuju form
                         window.scrollTo({ top: 900, behavior: "smooth" });
                       }}
