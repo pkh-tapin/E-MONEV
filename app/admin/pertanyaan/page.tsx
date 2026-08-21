@@ -32,8 +32,8 @@ interface QuestionItem {
   type: string;
   required: boolean;
   is_hidden?: boolean;
-  is_readonly?: boolean; // FITUR BARU: Kunci Jawaban
-  default_value?: string; // FITUR BARU: Jawaban Otomatis
+  is_readonly?: boolean; 
+  default_value?: string; 
   options?: string[];
   conditional?: string;
   placeholder?: string;
@@ -58,8 +58,8 @@ export default function PertanyaanAdminPage() {
   const [formType, setFormType] = useState("radio");
   const [formRequired, setFormRequired] = useState(true);
   const [formIsHidden, setFormIsHidden] = useState(false);
-  const [formIsReadonly, setFormIsReadonly] = useState(false); // FITUR BARU
-  const [formDefaultValue, setFormDefaultValue] = useState(""); // FITUR BARU
+  const [formIsReadonly, setFormIsReadonly] = useState(false); 
+  const [formDefaultValue, setFormDefaultValue] = useState(""); 
   const [formOptions, setFormOptions] = useState("");
   const [formPlaceholder, setFormPlaceholder] = useState("");
   const [formDriveFolder, setFormDriveFolder] = useState("-");
@@ -91,7 +91,7 @@ export default function PertanyaanAdminPage() {
   const handleOpenAdd = () => {
     setIsEditing(false);
     setActiveKey("");
-    setFormNo(questions.length + 1);
+    setFormNo(questions.length + 1); // Otomatis taruh di paling bawah
     setFormKey(`q${String(questions.length + 1).padStart(2, "0")}_custom`);
     setFormModul("1. Kondisi Rumah & Sosial Ekonomi");
     setFormLabel("");
@@ -144,7 +144,6 @@ export default function PertanyaanAdminPage() {
     setShowModal(true);
   };
 
-  // TOGGLE CEPAT SEMBUNYIKAN / TAMPILKAN PERTANYAAN
   const handleToggleHide = async (q: QuestionItem) => {
     const newStatus = !q.is_hidden;
     await update(ref(database, `master_pertanyaan/${q.key}`), {
@@ -152,6 +151,9 @@ export default function PertanyaanAdminPage() {
     });
   };
 
+  // =========================================================================================
+  // SISTEM AUTO-SHIFT (PENGGESERAN OTOMATIS) SAAT TAMBAH / EDIT NOMOR URUT
+  // =========================================================================================
   const handleSaveQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formKey || !formLabel) {
@@ -160,10 +162,7 @@ export default function PertanyaanAdminPage() {
     }
 
     const optList = formOptions
-      ? formOptions
-          .split(";")
-          .map((o) => o.trim())
-          .filter(Boolean)
+      ? formOptions.split(";").map((o) => o.trim()).filter(Boolean)
       : [];
 
     let conditionalString = "-";
@@ -172,9 +171,10 @@ export default function PertanyaanAdminPage() {
     }
 
     const cleanKey = formKey.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    const targetNo = Number(formNo) || 1;
 
     const payload: QuestionItem = {
-      no: Number(formNo) || 1,
+      no: targetNo,
       key: cleanKey,
       modul: formModul,
       label: formLabel,
@@ -189,18 +189,67 @@ export default function PertanyaanAdminPage() {
       drive_folder: formType.includes("file") ? formDriveFolder : "-",
     };
 
-    if (isEditing && activeKey && activeKey !== cleanKey) {
-      await remove(ref(database, `master_pertanyaan/${activeKey}`));
+    const updates: Record<string, any> = {};
+    const oldNo = isEditing ? (questions.find((q) => q.key === activeKey)?.no || null) : null;
+
+    // ALGORITMA PENGGESERAN OTOMATIS (AUTO-SHIFT)
+    if (!isEditing) {
+      // 1. TAMBAH BARU: Semua pertanyaan yang nomornya >= targetNo digeser ke bawah (+1)
+      questions.forEach((q) => {
+        if (q.no && q.no >= targetNo) {
+          updates[`master_pertanyaan/${q.key}/no`] = q.no + 1;
+        }
+      });
+    } else if (oldNo !== null && oldNo !== targetNo) {
+      // 2. EDIT SUSUNAN NOMOR URUT
+      if (targetNo < oldNo) {
+        // Pindah ke Atas: Pertanyaan di antaranya bergeser turun (+1)
+        questions.forEach((q) => {
+          if (q.key !== activeKey && q.no && q.no >= targetNo && q.no < oldNo) {
+            updates[`master_pertanyaan/${q.key}/no`] = q.no + 1;
+          }
+        });
+      } else if (targetNo > oldNo) {
+        // Pindah ke Bawah: Pertanyaan di antaranya bergeser naik (-1)
+        questions.forEach((q) => {
+          if (q.key !== activeKey && q.no && q.no > oldNo && q.no <= targetNo) {
+            updates[`master_pertanyaan/${q.key}/no`] = q.no - 1;
+          }
+        });
+      }
     }
 
-    await set(ref(database, `master_pertanyaan/${cleanKey}`), payload);
+    // Eksekusi Hapus Key Lama (jika key diganti saat edit)
+    if (isEditing && activeKey && activeKey !== cleanKey) {
+      updates[`master_pertanyaan/${activeKey}`] = null; 
+    }
+    
+    // Terapkan Data Pertanyaan Saat Ini
+    updates[`master_pertanyaan/${cleanKey}`] = payload;
+
+    // Kirim seluruh update serentak ke database
+    await update(ref(database), updates);
+
     setShowModal(false);
-    alert(`Pertanyaan [${cleanKey}] berhasil disimpan!`);
+    alert(`Sukses!\nPertanyaan [${cleanKey}] berhasil disimpan dan susunan otomatis disesuaikan!`);
   };
 
   const handleDelete = async (key: string) => {
-    if (confirm(`Hapus pertanyaan [${key}] dari database kuesioner?`)) {
-      await remove(ref(database, `master_pertanyaan/${key}`));
+    const qToDelete = questions.find((q) => q.key === key);
+    if (confirm(`Hapus pertanyaan [${key}] dari database kuesioner?\n\nSistem akan otomatis menaikkan nomor urut pertanyaan di bawahnya agar tetap rapi.`)) {
+      const updates: Record<string, any> = {};
+      updates[`master_pertanyaan/${key}`] = null; // Eksekusi hapus
+
+      // Geser naik (-1) semua pertanyaan yang posisinya di bawah pertanyaan yang dihapus
+      if (qToDelete && qToDelete.no) {
+        questions.forEach((q) => {
+          if (q.no && q.no > qToDelete.no!) {
+            updates[`master_pertanyaan/${q.key}/no`] = q.no - 1;
+          }
+        });
+      }
+
+      await update(ref(database), updates);
     }
   };
 
@@ -315,7 +364,7 @@ export default function PertanyaanAdminPage() {
           <div>
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Database & Logika Pertanyaan</h2>
             <p className="text-xs text-slate-500">
-              Kelola visibilitas, urutan, dan syarat ketergantungan (*Conditional Logic*)
+              Kelola visibilitas, urutan (Otomatis menyesuaikan), dan syarat ketergantungan.
             </p>
           </div>
         </div>
@@ -518,6 +567,7 @@ export default function PertanyaanAdminPage() {
                     value={formNo}
                     onChange={(e) => setFormNo(Number(e.target.value))}
                   />
+                  <p className="text-[9px] text-slate-400 mt-1">*Sistem otomatis menggeser pertanyaan lain ke bawah.</p>
                 </div>
 
                 <div className="sm:col-span-2">
@@ -619,9 +669,7 @@ export default function PertanyaanAdminPage() {
                 </div>
               )}
 
-              {/* ========================================================================= */}
-              {/* FITUR BARU: PENGATURAN KUNCI JAWABAN & NILAI DEFAULT ADMIN                */}
-              {/* ========================================================================= */}
+              {/* FITUR PENGATURAN KUNCI JAWABAN & NILAI DEFAULT ADMIN */}
               <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-2xl space-y-3">
                 <div className="flex items-center gap-2 mb-2 border-b border-amber-200/50 pb-2">
                   <Lock className="w-4 h-4 text-amber-700" />
