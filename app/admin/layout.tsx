@@ -13,7 +13,9 @@ interface AdminContextType {
 }
 
 const AdminContext = createContext<AdminContextType>({ user: null });
-export const useAdminAuth = () => useContext(AdminContext);
+
+// PERBAIKAN: Kata "export" dihapus dari sini agar Vercel tidak error saat Build
+const useAdminAuth = () => useContext(AdminContext);
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
