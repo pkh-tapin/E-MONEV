@@ -67,7 +67,7 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
             desa: raw.desa || "Desa Lainnya",
             status_isi: isFilled,
             submission_id: isFilled ? raw.submission_id : null,
-            raw_data: raw.raw_data || {}, // MENGAMBIL DATA DINAMIS (RT, RW, DLL)
+            raw_data: raw.raw_data || {}, // MENGAMBIL DATA DINAMIS
           };
         });
 
@@ -293,7 +293,7 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
           </div>
         </div>
 
-        {/* List Kartu KPM */}
+        {/* List Kartu KPM (Dibatasi Info Tampil) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-1">
           {filteredKpmList.length === 0 ? (
             <div className="col-span-full py-8 text-center text-slate-400 text-xs">
@@ -309,7 +309,7 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
                   <h4 className="font-bold text-slate-900 text-sm truncate">{kpm.nama}</h4>
                   <p className="text-[11px] text-slate-500 font-mono">NIK: {kpm.nik || "-"}</p>
                   
-                  {/* RENDER DATA DINAMIS (RT, RW, KECAMATAN DLL) */}
+                  {/* RENDER HANYA DESA, RT, DAN RW */}
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     <span className="inline-block text-[10px] font-semibold bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-700 shadow-sm">
                       Desa {kpm.desa}
@@ -317,12 +317,12 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
                     
                     {Object.keys(kpm.raw_data || {})
                       .filter(key => 
-                        !["NAMA", "NIK", "DESA", "STATUS"].includes(key.toUpperCase()) && 
+                        ["RT", "RW"].includes(key.toUpperCase()) && 
                         kpm.raw_data![key] && 
                         String(kpm.raw_data![key]).trim() !== ""
                       )
                       .map((key) => (
-                        <span key={key} className="inline-block text-[10px] font-medium bg-blue-50/50 border border-blue-100 px-2 py-0.5 rounded text-slate-600">
+                        <span key={key} className="inline-block text-[10px] font-medium bg-blue-50/50 border border-blue-100 px-2 py-0.5 rounded text-slate-600 uppercase">
                           {key}: <strong className="text-slate-800">{kpm.raw_data![key]}</strong>
                         </span>
                       ))}
