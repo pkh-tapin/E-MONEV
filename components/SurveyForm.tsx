@@ -423,8 +423,9 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
       onResetSelection();
     } catch (err: any) {
       console.error(err);
+      // Perubahan pesan kesalahan agar lebih ramah pengguna
       alert(
-        `INFO PENTING:\n\nIsian kuesioner BERHASIL DIAMANKAN, namun Upload Foto GAGAL.\nAlasan: ${err.message}`
+        `INFO PENTING:\n\nIsian kuesioner Anda BERHASIL DIAMANKAN di database, namun Upload Foto GAGAL karena kesalahan konfigurasi server.\n\nSilakan informasikan kepada Admin untuk memeriksa URL GAS. Isian Anda tidak hilang. Silakan periksa koneksi lalu klik 'KIRIM' lagi.`
       );
     } finally {
       setSubmitting(false);
@@ -592,7 +593,7 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
                         })}
                       </div>
                     </div>
-                  );
+          );
                 }
 
                 // DROPDOWN SELECT
