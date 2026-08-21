@@ -9,16 +9,18 @@ import {
   Clock,
   MapPin,
   Search,
-  UserCheck,
   ChevronRight,
   Filter,
   Sparkles,
+  Lock,
+  Edit3,
 } from "lucide-react";
 import { KPM, VillageStat } from "@/lib/types";
 
-// Extend interface KPM lokal agar TypeScript mengenali raw_data
+// Extend interface KPM lokal agar TypeScript mengenali raw_data & is_locked
 interface ExtendedKPM extends KPM {
   raw_data?: Record<string, any>;
+  is_locked?: boolean;
 }
 
 interface Props {
@@ -42,13 +44,14 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
     // Sinkronisasi ganda: mencocokkan master_kpm dengan data submissions yang aktif
     const unsubSub = onValue(subRef, (subSnap) => {
       const subVal = subSnap.val() || {};
-      // Kumpulkan seluruh NIK / KPM ID yang benar-benar ada di submissions
-      const activeSubmissionNiks = new Set<string>();
-      const activeSubmissionKpmIds = new Set<string>();
-
-      Object.values(subVal).forEach((sub: any) => {
-        if (sub.nik) activeSubmissionNiks.add(String(sub.nik).trim());
-        if (sub.kpm_id) activeSubmissionKpmIds.add(String(sub.kpm_id).trim());
+      
+      // Kumpulkan seluruh data submission aktif beserta status kuncinya
+      const activeSubData = new Map();
+      Object.keys(subVal).forEach((subKey) => {
+        const sub = subVal[subKey];
+        sub.id = subKey;
+        if (sub.kpm_id) activeSubData.set(String(sub.kpm_id).trim(), sub);
+        else if (sub.nik) activeSubData.set(String(sub.nik).trim(), sub);
       });
 
       const unsubKpm = onValue(kpmRef, (kpmSnap) => {
@@ -56,9 +59,10 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
         const list: ExtendedKPM[] = Object.keys(kpmVal).map((key) => {
           const raw = kpmVal[key];
           const nik = String(raw.nik || "").trim();
-          // Status OTOMATIS TRUE hanya jika datanya BENAR-BENAR ADA di node submissions
-          const isFilled =
-            (nik && activeSubmissionNiks.has(nik)) || activeSubmissionKpmIds.has(key);
+          
+          const matchedSub = activeSubData.get(key) || activeSubData.get(nik);
+          const isFilled = !!matchedSub;
+          const isLocked = isFilled ? matchedSub.is_locked : false;
 
           return {
             id: key,
@@ -66,8 +70,9 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
             nik: nik,
             desa: raw.desa || "Desa Lainnya",
             status_isi: isFilled,
-            submission_id: isFilled ? raw.submission_id : null,
-            raw_data: raw.raw_data || {}, // MENGAMBIL DATA DINAMIS
+            submission_id: isFilled ? matchedSub.id : null,
+            is_locked: isLocked, // Status Kunci Admin
+            raw_data: raw.raw_data || {},
           };
         });
 
@@ -221,7 +226,7 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
         </div>
       </div>
 
-      {/* 3. DAFTAR SIAPA YANG SUDAH & BELUM MENGISI (KLIK LANGSUNG ISI) */}
+      {/* 3. DAFTAR SIAPA YANG SUDAH & BELUM MENGISI (KLIK LANGSUNG ISI/EDIT) */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-4">
           <div>
@@ -293,7 +298,7 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
           </div>
         </div>
 
-        {/* List Kartu KPM (Dibatasi Info Tampil) */}
+        {/* List Kartu KPM (Dengan Fitur Edit Terbuka) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-1">
           {filteredKpmList.length === 0 ? (
             <div className="col-span-full py-8 text-center text-slate-400 text-xs">
@@ -330,15 +335,26 @@ export default function PublicDashboard({ onSelectKpm }: Props) {
                 </div>
 
                 <div>
-                  {kpm.status_isi ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/80 border border-emerald-300 px-3 py-1.5 rounded-xl">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Sudah
+                  {kpm.is_locked ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-100 border border-red-300 px-3 py-1.5 rounded-xl shadow-sm">
+                      <Lock className="w-3.5 h-3.5" /> Terkunci
                     </span>
+                  ) : kpm.status_isi ? (
+                    <button
+                      onClick={() => {
+                        // Memungkinkan Edit Data (Akan ditarik dari Firebase nanti)
+                        onSelectKpm(kpm as KPM);
+                        window.scrollTo({ top: 900, behavior: "smooth" });
+                      }}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 active:scale-95 px-3.5 py-2 rounded-xl shadow transition"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit Data</span>
+                    </button>
                   ) : (
                     <button
                       onClick={() => {
                         onSelectKpm(kpm as KPM);
-                        // Scroll otomatis ke bawah menuju form
                         window.scrollTo({ top: 900, behavior: "smooth" });
                       }}
                       className="inline-flex items-center gap-1 text-xs font-bold text-white bg-blue-900 hover:bg-blue-800 active:scale-95 px-3.5 py-2 rounded-xl shadow transition"
