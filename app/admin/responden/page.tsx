@@ -121,11 +121,29 @@ export default function RespondenCRUDPage() {
           id: k,
           ...val[k],
         }));
+
+        // 1. Urutkan dari data yang paling baru ke paling lama
         list.sort(
           (a, b) =>
             new Date(b.tgl_survei || 0).getTime() - new Date(a.tgl_survei || 0).getTime()
         );
-        setSubmissions(list);
+
+        // 2. SISTEM PEMBERSIH DATA GANDA (Hanya menampilkan 1 data terbaru per KPM)
+        const uniqueSubmissions: any[] = [];
+        const seenIdentifiers = new Set();
+
+        list.forEach((sub) => {
+          // Identifikasi unik bisa pakai KPM_ID, NIK, atau Nama
+          const uniqueId = sub.kpm_id || sub.nik || sub.nama;
+          
+          if (!seenIdentifiers.has(uniqueId)) {
+            seenIdentifiers.add(uniqueId);
+            uniqueSubmissions.push(sub);
+          }
+        });
+
+        // Set hanya data yang unik
+        setSubmissions(uniqueSubmissions);
       } else {
         setSubmissions([]);
       }
@@ -400,7 +418,7 @@ export default function RespondenCRUDPage() {
                 <th className="p-3.5">Desa</th>
                 <th className="p-3.5 text-center">Status Kunci</th>
                 <th className="p-3.5 text-center">Foto Drive</th>
-                <th className="p-3.5 text-right min-w-[180px]">Aksi Super Admin</th>
+                <th className="p-3.5 text-right min-w-[200px]">Aksi Super Admin</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -483,14 +501,14 @@ export default function RespondenCRUDPage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* MODAL DETAIL BIODATA LENGKAP & EDIT JAWABAN (DESAIN GRID SIMETRIS RAPI)   */}
+      {/* MODAL DETAIL BIODATA LENGKAP & EDIT JAWABAN (GRID SIMETRIS TANPA KOSONG)  */}
       {/* ========================================================================= */}
       {detailSub && (
-        <div className="fixed inset-0 z-[50] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-5xl w-full max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-slate-50 rounded-3xl max-w-5xl w-full max-h-[94vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             
             {/* Modal Header */}
-            <div className="p-5 bg-slate-900 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between shrink-0 gap-4">
+            <div className="px-6 py-5 bg-slate-900 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between shrink-0 gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-[10px] font-bold tracking-wider uppercase text-blue-300 bg-white/10 px-2 py-0.5 rounded">
@@ -514,7 +532,7 @@ export default function RespondenCRUDPage() {
                     onClick={handlePrint}
                     className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition"
                   >
-                    <Printer className="w-4 h-4" /> Cetak PDF
+                    <Printer className="w-4 h-4" /> Cetak
                   </button>
                 )}
                 <button
@@ -526,7 +544,7 @@ export default function RespondenCRUDPage() {
                   }`}
                 >
                   {detailSub.is_locked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                  <span>{detailSub.is_locked ? "Buka Kunci" : "Kunci Jawaban"}</span>
+                  <span>{detailSub.is_locked ? "Buka Kunci" : "Kunci"}</span>
                 </button>
                 <button onClick={() => setDetailSub(null)} className="p-2 hover:bg-white/20 rounded-full transition">
                   <X className="w-6 h-6 text-slate-300" />
@@ -539,52 +557,52 @@ export default function RespondenCRUDPage() {
               
               {/* Form Edit Header Biodata Dasar */}
               {editMode ? (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5 bg-blue-50/60 border border-blue-200 rounded-2xl">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-blue-50/60 border border-blue-200 rounded-2xl">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1.5 uppercase text-[10px] tracking-widest">Nama Lengkap</label>
+                    <label className="block font-bold text-slate-700 mb-1">Nama Lengkap:</label>
                     <input
                       type="text"
-                      className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold outline-none focus:border-blue-500"
                       value={editNama}
                       onChange={(e) => setEditNama(e.target.value)}
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1.5 uppercase text-[10px] tracking-widest">Nomor NIK</label>
+                    <label className="block font-bold text-slate-700 mb-1">Nomor NIK:</label>
                     <input
                       type="text"
-                      className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold outline-none focus:border-blue-500"
                       value={editNik}
                       onChange={(e) => setEditNik(e.target.value)}
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1.5 uppercase text-[10px] tracking-widest">Desa KPM</label>
+                    <label className="block font-bold text-slate-700 mb-1">Desa:</label>
                     <input
                       type="text"
-                      className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                      className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold outline-none focus:border-blue-500"
                       value={editDesa}
                       onChange={(e) => setEditDesa(e.target.value)}
                     />
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm flex flex-col justify-center">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col justify-center">
                     <p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Identitas KPM</p>
-                    <p className="text-base sm:text-lg font-black text-slate-900 leading-tight">{detailSub.nama}</p>
+                    <p className="text-lg font-black text-slate-900 leading-tight">{detailSub.nama}</p>
                     <div className="flex gap-4 mt-2">
-                      <p className="font-mono text-xs text-slate-600 bg-white px-2 py-1 rounded-md border border-slate-200">NIK: {detailSub.nik || "-"}</p>
-                      <p className="text-xs text-blue-800 font-bold bg-blue-100 px-2 py-1 rounded-md border border-blue-200">Desa: {detailSub.desa}</p>
+                      <p className="font-mono text-xs text-slate-600 bg-slate-100 px-2 py-1 rounded-md">NIK: {detailSub.nik || "-"}</p>
+                      <p className="text-xs text-slate-600 font-bold bg-blue-50 text-blue-800 px-2 py-1 rounded-md">Desa: {detailSub.desa}</p>
                     </div>
                   </div>
-                  <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm flex flex-col justify-between">
+                  <div className="p-5 bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col justify-between">
                     <div>
                       <p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Koordinat & Waktu</p>
                       <p className="font-mono text-xs font-bold text-slate-700">
                         GPS: {detailSub.geolokasi?.lat ? `${detailSub.geolokasi.lat}, ${detailSub.geolokasi.lng}` : "Tidak Tersedia"}
                       </p>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
+                      <p className="text-xs text-slate-500 mt-0.5">
                         Waktu: {detailSub.tgl_survei ? new Date(detailSub.tgl_survei).toLocaleString("id-ID") : "Tidak tercatat"}
                       </p>
                     </div>
@@ -592,7 +610,7 @@ export default function RespondenCRUDPage() {
                       <a
                         href={`https://www.google.com/maps?q=${detailSub.geolokasi.lat},${detailSub.geolokasi.lng}`}
                         target="_blank"
-                        className="self-start mt-3 px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-[11px] inline-flex items-center gap-1.5 shadow transition"
+                        className="self-start mt-3 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg text-[11px] inline-flex items-center gap-1.5 shadow transition"
                       >
                         <MapPin className="w-3.5 h-3.5 text-emerald-400" /> Buka Google Maps <ExternalLink className="w-2.5 h-2.5" />
                       </a>
@@ -605,10 +623,9 @@ export default function RespondenCRUDPage() {
               {/* GALERI FOTO GOOGLE DRIVE (TAMPIL LANGSUNG DENGAN ZOOM INTERNAL)             */}
               {/* ========================================================================= */}
               <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-sm">
-                <h4 className="font-extrabold text-slate-900 uppercase text-xs sm:text-sm tracking-wider border-l-4 border-amber-500 pl-3 mb-4">
-                  Dokumentasi Foto Lapangan (Google Drive)
+                <h4 className="font-extrabold text-slate-900 uppercase text-sm tracking-wider border-l-4 border-amber-500 pl-3 mb-4">
+                  Dokumentasi Lapangan
                 </h4>
-
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
                     { key: "foto_pegang_kks", label: "1. Foto KKS" },
@@ -627,18 +644,14 @@ export default function RespondenCRUDPage() {
                               src={getDriveImageUrl(detailSub.berkas_drive[item.key])} 
                               alt={item.label} 
                               onClick={() => setPreviewImage({ 
-                                url: detailSub.berkas_drive[item.key].viewUrl || getDriveImageUrl(detailSub.berkas_drive[item.key]), 
+                                url: getDriveImageUrl(detailSub.berkas_drive[item.key]), 
                                 title: `${item.label} - ${detailSub.nama}` 
                               })} 
                             />
-                            <div className="absolute top-2 right-2 bg-black/50 backdrop-blur p-1.5 rounded-xl text-white opacity-0 group-hover:opacity-100 transition pointer-events-none shadow-sm">
-                              <ZoomIn className="w-4 h-4" />
-                            </div>
+                            <div className="absolute top-2 right-2 bg-black/50 backdrop-blur p-1.5 rounded-xl text-white opacity-0 group-hover:opacity-100 transition pointer-events-none shadow-sm"><ZoomIn className="w-4 h-4" /></div>
                           </>
                         ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs">
-                            <ImageIcon className="w-6 h-6 mb-1 opacity-30" /> Kosong
-                          </div>
+                          <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs"><ImageIcon className="w-6 h-6 mb-1 opacity-30" /> Kosong</div>
                         )}
                       </div>
                     </div>
@@ -646,32 +659,31 @@ export default function RespondenCRUDPage() {
                 </div>
               </div>
 
-              {/* Rincian Seluruh Jawaban Kuesioner (GRID SIMETRIS) */}
+              {/* Rincian Seluruh Jawaban Kuesioner */}
               <div className="p-5 bg-white border border-slate-200 rounded-3xl shadow-sm">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-4">
-                  <h4 className="font-extrabold text-slate-900 uppercase text-xs sm:text-sm tracking-wider border-l-4 border-blue-900 pl-3">
-                    Daftar Isian Pertanyaan ({Object.keys(detailSub.jawaban || {}).length} Butir)
+                  <h4 className="font-extrabold text-slate-900 uppercase text-sm tracking-wider border-l-4 border-blue-900 pl-3">
+                    Isian Kuesioner ({Object.keys(detailSub.jawaban || {}).length} Butir)
                   </h4>
                   <button
                     onClick={() => setEditMode(!editMode)}
-                    className="text-xs font-bold px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg flex items-center gap-1.5 transition"
+                    className="text-xs font-bold px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 flex items-center gap-1.5 transition"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
                     <span>{editMode ? "Batal Edit" : "Edit Jawaban"}</span>
                   </button>
                 </div>
 
-                {/* GRID 2 KOLOM RAPI TANPA KOSONG */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 items-stretch">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   {Object.keys(detailSub.jawaban || {}).map((qKey, index) => {
                     const qObj = questions.find((q) => q.key === qKey);
                     const labelText = qObj?.label || qKey;
                     const val = editMode ? editAnswers[qKey] : detailSub.jawaban[qKey];
 
                     return (
-                      <div key={qKey} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between h-full">
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <p className="font-bold text-slate-700 text-xs sm:text-sm leading-snug">
+                      <div key={qKey} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <p className="font-bold text-slate-700 text-xs leading-snug">
                             <span className="text-slate-400 font-mono mr-1.5">{index + 1}.</span>
                             {labelText}
                           </p>
@@ -680,7 +692,7 @@ export default function RespondenCRUDPage() {
                         {editMode ? (
                           <input
                             type="text"
-                            className="w-full mt-auto p-2.5 bg-white border border-blue-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
+                            className="w-full p-2.5 bg-white border border-blue-300 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600"
                             value={Array.isArray(val) ? val.join(", ") : val || ""}
                             onChange={(e) =>
                               setEditAnswers({
@@ -698,7 +710,7 @@ export default function RespondenCRUDPage() {
                                 {val.map((item: string) => (
                                   <span
                                     key={item}
-                                    className="px-2.5 py-1 bg-blue-100 border border-blue-200 text-blue-900 rounded-lg text-[10px] font-bold uppercase tracking-wide"
+                                    className="px-2 py-1 bg-blue-100 text-blue-900 border border-blue-200 rounded-lg text-[10px] font-bold uppercase tracking-wide"
                                   >
                                     {item}
                                   </span>
@@ -719,7 +731,7 @@ export default function RespondenCRUDPage() {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 sm:p-5 bg-slate-900 border-t flex flex-col-reverse sm:flex-row items-center justify-between shrink-0 gap-3 rounded-b-3xl">
+            <div className="px-6 py-4 bg-slate-900 border-t flex flex-col-reverse sm:flex-row items-center justify-between shrink-0 gap-3 rounded-b-3xl">
               <button
                 onClick={() => handleDelete(detailSub)}
                 className="w-full sm:w-auto px-5 py-2.5 bg-slate-800 hover:bg-red-500 text-slate-300 hover:text-white font-bold rounded-xl text-xs flex justify-center items-center gap-1.5 transition"
@@ -752,7 +764,7 @@ export default function RespondenCRUDPage() {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL ZOOM INTERNAL (TANPA BUKA GOOGLE DRIVE, ANTI BLOKIR)                */}
+      {/* MODAL ZOOM INTERNAL (TANPA BUKA GOOGLE DRIVE)                             */}
       {/* ========================================================================= */}
       {previewImage && (
         <div
@@ -773,10 +785,10 @@ export default function RespondenCRUDPage() {
               {previewImage.title}
             </h4>
             
-            {/* Tampilan Gambar Zoom menggunakan Image Tag (Bypass Google iframe restriction) */}
+            {/* Tampilan Gambar Zoom (Bypass Google iframe restriction) */}
             <img
               src={previewImage.url}
-              alt="Zoom HD"
+              alt="Zoomed Preview"
               className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border border-white/5"
               referrerPolicy="no-referrer"
               crossOrigin="anonymous"
