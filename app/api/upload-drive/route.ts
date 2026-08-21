@@ -1,74 +1,73 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File;
-    const category = (formData.get("category") as string) || "DOKUMEN";
-    const nik = (formData.get("nik") as string) || "NO_NIK";
-    const nama = (formData.get("nama") as string) || "WARGA";
+    // 1. Menerima kiriman FormData dari aplikasi (kamera/galeri HP)
+    const formData = await request.formData();
+    const file = formData.get("file") as File | null;
+    const category = formData.get("category") as string || "FOTO_UMUM";
+    const nik = formData.get("nik") as string || "NONIK";
+    const nama = formData.get("nama") as string || "WARGA";
 
+    // Pengecekan apakah file benar-benar terbawa
     if (!file) {
-      return NextResponse.json({ error: "Berkas foto tidak ditemukan." }, { status: 400 });
-    }
-
-    let prefix = "FOTO";
-    if (category === "foto_pegang_kks") prefix = "A_FOTO_MEMEGANG_KKS";
-    else if (category === "foto_kpm_seluruh_tubuh") prefix = "B_FOTO_KPM_SELURUH_TUBUH";
-    else if (category === "foto_rumah_kpm") prefix = "C_FOTO_RUMAH_KPM";
-    else if (category === "foto_usaha_kpm") prefix = "D_FOTO_USAHA_KPM";
-
-    const safeName = nama.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-    const safeNik = String(nik).replace(/[^0-9]/g, "");
-    const extension = file.name.split(".").pop() || "jpg";
-    const fileName = `${prefix}_${safeNik}_${safeName}.${extension}`;
-
-    const bytes = await file.arrayBuffer();
-    const base64String = Buffer.from(bytes).toString("base64");
-
-    const gasUrl = process.env.GOOGLE_SCRIPT_WEBAPP_URL;
-
-    if (!gasUrl) {
-      return NextResponse.json({ error: "URL GAS belum ada di .env.local" }, { status: 500 });
-    }
-
-    const gasResponse = await fetch(gasUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName: fileName,
-        mimeType: file.type || "image/jpeg",
-        base64: base64String,
-      }),
-      redirect: "follow",
-    });
-
-    const responseText = await gasResponse.text();
-
-    // DETEKTOR ERROR HTML (Akses Ditolak)
-    if (responseText.startsWith("<!DOCTYPE") || responseText.startsWith("<html")) {
-      throw new Error(
-        "Akses ke Google Apps Script DITOLAK. Pastikan di pengaturan Deploy, 'Siapa yang memiliki akses (Who has access)' diubah menjadi 'Siapa saja (Anyone)'."
+      return NextResponse.json(
+        { error: "File foto gagal diterima oleh server aplikasi." },
+        { status: 400 }
       );
     }
 
-    const result = JSON.parse(responseText);
-
-    if (!result.success) {
-      throw new Error(result.error || "Gagal mengunggah foto via Apps Script.");
+    // 2. Memanggil URL Google Apps Script dari variabel Vercel (.env)
+    const gasUrl = process.env.GAS_URL;
+    if (!gasUrl || gasUrl.trim() === "") {
+      return NextResponse.json(
+        { error: "Konfigurasi Vercel: Variabel GAS_URL belum diatur atau kosong." },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      fileId: result.fileId,
-      fileName: fileName,
-      viewUrl: result.viewUrl,
-      directUrl: result.directUrl,
+    // 3. Konversi format file fisik menjadi Base64 (Syarat mutlak Google Apps Script)
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const base64String = buffer.toString("base64");
+
+    // 4. Merapikan nama file agar tersusun cantik di Google Drive
+    // Contoh hasil: 631520010_FOTO_RUMAH_KPM_SITI_MAISAROH.jpg
+    const safeNama = nama.replace(/[^a-zA-Z0-9]/g, "_").substring(0, 30);
+    const ext = file.name.split('.').pop() || 'jpg';
+    const finalFileName = `${nik}_${category.toUpperCase()}_${safeNama}.${ext}`;
+
+    // 5. Meneruskan data ke Google Apps Script
+    const response = await fetch(gasUrl, {
+      method: "POST",
+      headers: {
+        // Menggunakan text/plain agar Google Apps Script tidak menolak request
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify({
+        base64: base64String,
+        fileName: finalFileName,
+        mimeType: file.type || "image/jpeg",
+      }),
     });
+
+    // 6. Membaca jawaban dari Google Drive
+    const data = await response.json();
+
+    if (!data.success) {
+      return NextResponse.json(
+        { error: data.error || "Google Apps Script menolak penyimpanan file." },
+        { status: 500 }
+      );
+    }
+
+    // 7. Berhasil! Kembalikan link gambar ke aplikasi
+    return NextResponse.json(data, { status: 200 });
+
   } catch (error: any) {
-    console.error("Upload API Error:", error);
+    console.error("API Upload Error Terdeteksi:", error);
     return NextResponse.json(
-      { error: `Upload Gagal: ${error.message}` },
+      { error: `Sistem Error: ${error.message}` },
       { status: 500 }
     );
   }
