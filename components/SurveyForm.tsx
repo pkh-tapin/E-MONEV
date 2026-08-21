@@ -26,16 +26,22 @@ interface QuestionSchema {
   type: string;
   required: boolean;
   is_hidden?: boolean;
-  is_readonly?: boolean; // FITUR BARU: Kunci input dari admin
-  default_value?: string; // FITUR BARU: Jawaban bawaan admin
+  is_readonly?: boolean;
+  default_value?: string;
   options?: string[];
   conditional?: string;
   placeholder?: string;
   drive_folder?: string;
 }
 
+// Extend KPM untuk bisa menerima submission_id & is_locked
+interface ExtendedKPM extends KPM {
+  submission_id?: string | null;
+  is_locked?: boolean;
+}
+
 interface Props {
-  kpm: KPM;
+  kpm: ExtendedKPM;
   onResetSelection: () => void;
 }
 
@@ -68,7 +74,7 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [draftSavedAlert, setDraftSavedAlert] = useState(false);
 
-  // 1. Muat Pertanyaan & Cache Draft Khusus KPM Ini
+  // 1. Muat Pertanyaan & Cache Draft
   useEffect(() => {
     const qRef = ref(database, "master_pertanyaan");
     const unsubscribe = onValue(qRef, (snap) => {
@@ -94,11 +100,13 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
           }
         }
 
-        setAnswers(() => {
+        setAnswers((prev) => {
+          // Jangan timpa jika sedang proses load dari Firebase Existing
+          if (Object.keys(prev).length > 0 && kpm.submission_id) return prev;
+
           const initAnswers: Record<string, any> = { ...savedDraft };
           list.forEach((q) => {
             if (initAnswers[q.key] === undefined) {
-              // FITUR ADMIN: Masukkan jawaban bawaan jika di-set admin
               if (q.default_value) {
                 if (q.type === "multiselect" && typeof q.default_value === "string") {
                   initAnswers[q.key] = q.default_value.split(",").map((s) => s.trim());
@@ -123,9 +131,35 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
     });
 
     return () => unsubscribe();
-  }, [draftKey]);
+  }, [draftKey, kpm.submission_id]);
 
-  // 2. Simpan Otomatis ke LocalStorage Setiap Ada Perubahan
+  // 2. Jika Statusnya EDIT, Tarik Jawaban dan Foto Sebelumnya dari Database
+  useEffect(() => {
+    if (kpm.submission_id) {
+      const subRef = ref(database, `submissions/${kpm.submission_id}`);
+      onValue(
+        subRef,
+        (snap) => {
+          const val = snap.val();
+          if (val) {
+            if (val.jawaban) {
+              setAnswers((prev) => ({ ...prev, ...val.jawaban }));
+            }
+            if (val.berkas_drive) {
+              const previews: Record<string, string> = {};
+              Object.keys(val.berkas_drive).forEach((k) => {
+                previews[k] = val.berkas_drive[k].directUrl || val.berkas_drive[k].viewUrl;
+              });
+              setPhotoPreviews((prev) => ({ ...prev, ...previews }));
+            }
+          }
+        },
+        { onlyOnce: true }
+      );
+    }
+  }, [kpm.submission_id]);
+
+  // 3. Simpan Otomatis ke LocalStorage Setiap Ada Perubahan
   useEffect(() => {
     if (Object.keys(answers).length > 0 && typeof window !== "undefined") {
       localStorage.setItem(draftKey, JSON.stringify(answers));
@@ -135,7 +169,7 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
     }
   }, [answers, draftKey]);
 
-  // 3. Ambil Geolocation GPS
+  // 4. Ambil Geolocation GPS
   useEffect(() => {
     ambilLokasi();
   }, []);
@@ -181,9 +215,8 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
     return true;
   };
 
-  // Kunci perubahan state jika pertanyaan di-set readonly oleh admin
   const handleAnswerChange = (key: string, value: any, isReadonly?: boolean) => {
-    if (isReadonly) return; 
+    if (isReadonly) return;
     setAnswers((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -279,18 +312,21 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
     return data;
   };
 
+  // FUNGSI SUBMIT (VALIDASI CERDAS: BISA MEMBACA FOTO EXISTING)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (kpm.status_isi && kpm.submission_id && Object.keys(photoFiles).length === 0) {
-      alert("Survei untuk KPM ini telah terekam di sistem dan dikunci.");
+    if (kpm.is_locked) {
+      alert("⚠️ DITOLAK!\n\nSurvei untuk KPM ini telah dikunci oleh Admin dan tidak dapat diubah lagi.");
       return;
     }
 
-    // VALIDASI KETAT WAJIB ISI
+    // VALIDASI KETAT WAJIB ISI (Tolak Simpan Jika Kosong)
     for (const q of questions) {
-      if (q.required && isQuestionVisible(q.conditional)) {
+      if (q.required && isQuestionVisible(q.conditional) && !q.is_hidden) {
+        
         if (q.type.includes("file")) {
+          // Validasi akan Lolos jika Foto Baru (Files) ATAU Foto Lama (Previews) Ada
           if (!photoFiles[q.key] && !photoPreviews[q.key]) {
             alert(`⚠️ PERHATIAN!\n\nDokumen foto wajib belum diunggah:\n"${q.label}"`);
             return;
@@ -312,9 +348,10 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
       }
     }
 
-    if (!photoFiles["foto_pegang_kks"]) return alert("Foto 1: Foto Memegang KKS wajib diambil!");
-    if (!photoFiles["foto_kpm_seluruh_tubuh"]) return alert("Foto 2: Foto KPM Seluruh Tubuh wajib diambil!");
-    if (!photoFiles["foto_rumah_kpm"]) return alert("Foto 3: Foto Rumah KPM wajib diambil!");
+    // Pengecekan Foto Dasar PKH
+    if (!photoFiles["foto_pegang_kks"] && !photoPreviews["foto_pegang_kks"]) return alert("Foto 1: Foto KKS wajib diambil!");
+    if (!photoFiles["foto_kpm_seluruh_tubuh"] && !photoPreviews["foto_kpm_seluruh_tubuh"]) return alert("Foto 2: Foto Tubuh wajib diambil!");
+    if (!photoFiles["foto_rumah_kpm"] && !photoPreviews["foto_rumah_kpm"]) return alert("Foto 3: Foto Rumah wajib diambil!");
 
     setSubmitting(true);
     let currentSubmissionId = kpm.submission_id;
@@ -324,61 +361,70 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
       const submissionsRef = ref(database, "submissions");
       let subRef;
 
+      // UPDATE DATA ATAU BUAT BARU
       if (currentSubmissionId) {
         subRef = ref(database, `submissions/${currentSubmissionId}`);
+        await update(subRef, {
+          jawaban: answers,
+          geolokasi: coords,
+          tgl_update: new Date().toISOString() // Update Waktu Saja
+        });
       } else {
         const newSub = push(submissionsRef);
         subRef = newSub;
         currentSubmissionId = newSub.key;
-      }
 
-      const basePayload = {
-        kpm_id: kpm.id || kpm.nik || "KPM_DATA",
-        nik: kpm.nik || "",
-        nama: kpm.nama || "",
-        desa: kpm.desa || "",
-        tgl_survei: new Date().toISOString(),
-        geolokasi: coords,
-        jawaban: answers,
-        status: "MENUNGGU_FOTO",
-        is_locked: false,
-      };
-
-      await set(subRef, basePayload);
-      if (kpm.id) {
-        await update(ref(database, `master_kpm/${kpm.id}`), {
-          status_isi: true,
-          submission_id: currentSubmissionId,
-          tgl_update: new Date().toISOString(),
+        await set(subRef, {
+          kpm_id: kpm.id || kpm.nik || "KPM_DATA",
+          nik: kpm.nik || "",
+          nama: kpm.nama || "",
+          desa: kpm.desa || "",
+          tgl_survei: new Date().toISOString(),
+          geolokasi: coords,
+          jawaban: answers,
+          status: "MENUNGGU_FOTO",
+          is_locked: false,
         });
-      }
 
-      setStatusMessage("Isian aman! Mengunggah foto ke Google Drive...");
-      const uploadedDriveFiles: Record<string, any> = {};
-
-      for (const photoKey of Object.keys(photoFiles)) {
-        const file = photoFiles[photoKey];
-        if (file) {
-          uploadedDriveFiles[photoKey] = await uploadPhotoToDrive(photoKey, file);
+        if (kpm.id) {
+          await update(ref(database, `master_kpm/${kpm.id}`), {
+            status_isi: true,
+            submission_id: currentSubmissionId,
+            tgl_update: new Date().toISOString(),
+          });
         }
       }
 
-      setStatusMessage("Menyelesaikan sinkronisasi...");
-      await update(subRef, {
-        berkas_drive: uploadedDriveFiles,
-        status: "SELESAI",
-      });
+      setStatusMessage("Memeriksa dan mengunggah foto baru...");
+      const photoUpdates: Record<string, any> = {};
+      let hasNewPhotos = false;
+
+      // Hanya upload file yang BARU saja diambil (TIDAK MERUSAK FOTO LAMA)
+      for (const photoKey of Object.keys(photoFiles)) {
+        const file = photoFiles[photoKey];
+        if (file) {
+          photoUpdates[`berkas_drive/${photoKey}`] = await uploadPhotoToDrive(photoKey, file);
+          hasNewPhotos = true;
+        }
+      }
+
+      if (hasNewPhotos) {
+        setStatusMessage("Menyelesaikan sinkronisasi...");
+        await update(subRef, photoUpdates);
+      }
+
+      await update(subRef, { status: "SELESAI" });
 
       if (typeof window !== "undefined") {
         localStorage.removeItem(draftKey);
       }
 
-      alert("SEMPURNA! Seluruh data survei dan foto berhasil tersimpan 100%.");
+      alert("SEMPURNA! Seluruh data survei dan perubahan berhasil tersimpan.");
       onResetSelection();
     } catch (err: any) {
       console.error(err);
       alert(
-        `INFO PENTING:\n\nSeluruh isian kuesioner Anda BERHASIL DIAMANKAN di database, namun Upload Foto GAGAL.\n\nAlasan: ${err.message}\n\nIsian Anda tidak hilang. Silakan periksa koneksi lalu klik 'KIRIM' lagi.`
+        `INFO PENTING:\n\nIsian kuesioner BERHASIL DIAMANKAN, namun Upload Foto GAGAL.\nAlasan: ${err.message}`
       );
     } finally {
       setSubmitting(false);
@@ -403,42 +449,38 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
   });
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 pb-28 sm:pb-8 w-full max-w-5xl mx-auto">
+    <form onSubmit={handleSubmit} className="space-y-6 pb-28 sm:pb-8 max-w-5xl mx-auto">
       {/* Header Info Geotagging & Status Draft Perangkat */}
-      <div className="bg-gradient-to-r from-slate-900 to-blue-950 text-white rounded-2xl p-4 sm:p-6 shadow-md">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+      <div className="bg-gradient-to-r from-slate-900 to-blue-950 text-white rounded-3xl p-5 sm:p-6 shadow-md">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-blue-300">
-                Formulir ({questions.length} Pertanyaan)
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-blue-300 bg-white/10 px-2 py-0.5 rounded border border-blue-400/20">
+                {kpm.submission_id ? "Mode Edit Data" : `Formulir (${questions.length} Butir)`}
               </span>
               {draftSavedAlert && (
                 <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-400/30">
-                  <Check className="w-3 h-3" /> Draf Tersimpan di HP
+                  <Check className="w-3 h-3" /> Draf Aman
                 </span>
               )}
             </div>
-            <h2 className="text-lg sm:text-2xl font-bold">{kpm.nama}</h2>
+            <h2 className="text-xl sm:text-2xl font-bold">{kpm.nama}</h2>
             <p className="text-xs text-slate-300 font-mono">NIK: {kpm.nik || "-"} • Desa: {kpm.desa}</p>
           </div>
 
           <div className="w-full sm:w-auto flex items-center gap-2">
-            <div className="flex-1 sm:flex-none bg-white/10 backdrop-blur border border-white/15 px-3 py-2 rounded-xl flex items-center justify-between gap-3 text-xs">
+            <div className="flex-1 sm:flex-none bg-black/30 backdrop-blur border border-white/10 px-4 py-2.5 rounded-2xl flex items-center justify-between gap-4 shadow-inner">
               <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+                <MapPin className="w-5 h-5 text-emerald-400 shrink-0" />
                 <div>
-                  <p className="font-mono text-[11px]">
-                    {coords.lat ? `${coords.lat}, ${coords.lng}` : "GPS..."}
-                  </p>
-                  <p className="text-[10px] text-slate-300">
-                    {coords.akurasi ? `±${coords.akurasi}m` : "Aktifkan Lokasi"}
-                  </p>
+                  <p className="font-mono text-xs">{coords.lat ? `${coords.lat}, ${coords.lng}` : "GPS..."}</p>
+                  <p className="text-[10px] text-slate-400">{coords.akurasi ? `±${coords.akurasi}m Akurasi` : "Aktifkan Lokasi"}</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={ambilLokasi}
-                className="p-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-white transition"
+                className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loadingGps ? "animate-spin" : ""}`} />
               </button>
@@ -447,16 +489,16 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
             <button
               type="button"
               onClick={handleResetDraft}
-              className="p-2 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/30 rounded-xl text-rose-300 text-xs font-bold transition flex items-center gap-1"
+              className="p-3 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/20 rounded-2xl text-rose-300 transition"
               title="Reset Isian Warga Ini"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Render Pertanyaan Dinamis (Desain GRID Simetris & Rapih) */}
+      {/* Render Pertanyaan Dinamis (Desain Grid Simetris Tanpa Ruang Kosong) */}
       {Object.keys(groupedQuestions).map((modulName) => {
         const modulQuestions = groupedQuestions[modulName].filter((q) => isQuestionVisible(q.conditional));
         if (modulQuestions.length === 0) return null;
@@ -473,9 +515,8 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5 items-stretch">
               {modulQuestions.map((q) => {
                 
-                // Elemen Label dan Indikator Kunci
                 const labelElement = (
-                  <div className="flex justify-between items-center mb-2 min-h-[24px]">
+                  <div className="flex justify-between items-start mb-2 min-h-[24px]">
                     <label className="text-xs sm:text-sm font-bold text-slate-700 leading-tight pr-2">
                       {q.label} {q.required && <span className="text-red-500">*</span>}
                     </label>
@@ -493,13 +534,15 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
                   return (
                     <div
                       key={q.key}
-                      className="col-span-1 md:col-span-2 p-4 bg-amber-50/70 border-2 border-amber-200 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+                      className="col-span-1 md:col-span-2 p-5 bg-amber-50/70 border-2 border-amber-200 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
                     >
                       <div className="space-y-1">
                         <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider block">
                           {q.label} {q.required && <span className="text-red-500">*</span>}
                         </span>
-                        <p className="text-xs text-slate-600">{q.placeholder || "Ambil foto menggunakan kamera HP"}</p>
+                        <p className="text-xs text-slate-600">
+                          {preview ? "Tersimpan di sistem. Klik Ubah Foto jika ingin mengganti." : q.placeholder || "Ambil foto menggunakan kamera HP"}
+                        </p>
                       </div>
 
                       <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -507,11 +550,10 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
                           <img
                             src={preview}
                             alt="Preview"
-                            className="h-20 w-20 object-cover rounded-xl border border-amber-300 shadow-inner"
+                            className="h-16 w-16 sm:h-20 sm:w-20 object-cover rounded-xl border border-amber-300 shadow-inner"
                           />
                         )}
-
-                        <label className={`cursor-pointer flex-1 sm:flex-none py-3 px-4 text-white font-bold text-xs sm:text-sm rounded-xl text-center flex items-center justify-center gap-2 shadow transition ${q.is_readonly ? 'bg-amber-400 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-700 active:scale-95'}`}>
+                        <label className={`cursor-pointer flex-1 sm:flex-none py-3 px-5 text-white font-bold text-xs sm:text-sm rounded-xl text-center flex items-center justify-center gap-2 shadow transition ${q.is_readonly ? 'bg-amber-400 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-700 active:scale-95'}`}>
                           <Camera className="w-4 h-4" />
                           <span>{preview ? "Ubah Foto" : "Ambil Foto"}</span>
                           <input
@@ -538,13 +580,10 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
                           const isSelected = answers[q.key] === opt;
                           return (
                             <button
-                              type="button"
-                              key={opt}
+                              type="button" key={opt}
                               onClick={() => handleAnswerChange(q.key, opt, q.is_readonly)}
                               className={`flex-1 min-w-[80px] p-2.5 rounded-xl border text-xs sm:text-sm font-bold transition ${
-                                isSelected
-                                  ? "bg-blue-900 text-white border-blue-900 shadow-sm"
-                                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                                isSelected ? "bg-blue-900 text-white border-blue-900 shadow-sm" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
                               } ${q.is_readonly && !isSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                               {opt}
@@ -568,11 +607,7 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
                         disabled={q.is_readonly}
                       >
                         <option value="">-- Silakan Pilih --</option>
-                        {(q.options || []).map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
+                        {(q.options || []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                       </select>
                     </div>
                   );
@@ -582,23 +617,17 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
                 if (q.type === "multiselect") {
                   const currentSelected: string[] = Array.isArray(answers[q.key]) ? answers[q.key] : [];
                   return (
-                    <div
-                      key={q.key}
-                      className={`col-span-1 md:col-span-2 p-4 border rounded-2xl flex flex-col justify-between h-full ${q.is_readonly ? 'bg-slate-100 border-slate-200' : 'bg-slate-50 border-slate-200'}`}
-                    >
+                    <div key={q.key} className={`col-span-1 md:col-span-2 p-4 border rounded-2xl flex flex-col justify-between h-full ${q.is_readonly ? 'bg-slate-100 border-slate-200' : 'bg-slate-50 border-slate-200'}`}>
                       {labelElement}
                       <div className="flex flex-wrap gap-2 mt-auto">
                         {(q.options || []).map((opt) => {
                           const isSelected = currentSelected.includes(opt);
                           return (
                             <button
-                              type="button"
-                              key={opt}
+                              type="button" key={opt}
                               onClick={() => handleMultiselectToggle(q.key, opt, q.is_readonly)}
                               className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold border transition ${
-                                isSelected
-                                  ? "bg-blue-900 text-white border-blue-900 shadow-sm"
-                                  : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                                isSelected ? "bg-blue-900 text-white border-blue-900 shadow-sm" : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
                               } ${q.is_readonly && !isSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                               {opt}
@@ -618,9 +647,8 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
                       <div className={`flex items-center mt-auto border border-slate-300 bg-white rounded-xl px-3 py-2 ${!q.is_readonly && 'focus-within:border-blue-700 focus-within:ring-1 focus-within:ring-blue-700'}`}>
                         <span className="text-slate-400 font-bold text-xs sm:text-sm mr-2">Rp</span>
                         <input
-                          type="text"
-                          inputMode="numeric"
-                          className={`w-full outline-none text-xs sm:text-sm font-bold text-slate-800 bg-transparent ${q.is_readonly ? 'cursor-not-allowed' : ''}`}
+                          type="text" inputMode="numeric"
+                          className={`w-full outline-none text-xs sm:text-sm font-bold text-slate-800 bg-transparent ${q.is_readonly ? 'cursor-not-allowed text-slate-500' : ''}`}
                           placeholder="0"
                           value={formatRupiah(answers[q.key])}
                           onChange={(e) => handleCurrencyChange(q.key, e.target.value, q.is_readonly)}
@@ -631,14 +659,14 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
                   );
                 }
 
-                // TEXT & NUMBER
+                // TEXT & NUMBER DEFAULT
                 return (
                   <div key={q.key} className={`p-4 border rounded-2xl flex flex-col justify-between h-full ${q.is_readonly ? 'bg-slate-100 border-slate-200' : 'bg-slate-50 border-slate-200'}`}>
                     {labelElement}
                     <input
                       type={q.type === "number" ? "number" : "text"}
                       placeholder={q.placeholder || "Silahkan isi..."}
-                      className={`w-full mt-auto p-3 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-800 outline-none ${q.is_readonly ? 'cursor-not-allowed bg-slate-50' : 'focus:border-blue-700 focus:ring-1 focus:ring-blue-700'}`}
+                      className={`w-full mt-auto p-3 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-800 outline-none ${q.is_readonly ? 'cursor-not-allowed bg-slate-50 text-slate-500' : 'focus:border-blue-700 focus:ring-1 focus:ring-blue-700'}`}
                       value={answers[q.key] || ""}
                       onChange={(e) => handleAnswerChange(q.key, e.target.value, q.is_readonly)}
                       disabled={q.is_readonly}
@@ -656,15 +684,15 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
         <button
           type="button"
           onClick={onResetSelection}
-          className="hidden sm:inline-block text-xs font-semibold text-slate-500 hover:text-slate-800"
+          className="hidden sm:inline-block text-sm font-bold text-slate-500 hover:text-slate-800 underline-offset-4 hover:underline transition"
         >
-          Batalkan & Pilih KPM Lain
+          Batalkan & Ganti Warga
         </button>
 
         <button
           type="submit"
           disabled={submitting}
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 sm:py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold rounded-xl sm:rounded-2xl text-sm sm:text-base shadow-lg shadow-emerald-600/30 transition disabled:opacity-50"
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-10 py-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold rounded-2xl text-sm sm:text-base shadow-xl shadow-emerald-600/30 transition disabled:opacity-70 disabled:cursor-wait"
         >
           {submitting ? (
             <>
@@ -674,7 +702,7 @@ export default function SurveyForm({ kpm, onResetSelection }: Props) {
           ) : (
             <>
               <Send className="w-5 h-5" />
-              <span>KIRIM & SIMPAN SURVEI</span>
+              <span>{kpm.submission_id ? "SIMPAN PERUBAHAN" : "KIRIM & SIMPAN SURVEI"}</span>
             </>
           )}
         </button>
