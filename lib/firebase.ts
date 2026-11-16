@@ -17,4 +17,3 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-databsse tidak terbaca pada alikasi in, apakah karena rulenya atau bagaimana
